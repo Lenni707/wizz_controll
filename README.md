@@ -2,7 +2,7 @@
 
 A beautiful, locally-hosted, containerized web application to control your WiZ smart lighting system right from your desktop. 
 
-This app communicates directly with your WiZ lights over your local Wi-Fi network using WiZ's native **local UDP protocol (port 38899)**. It features a high-fidelity, premium dark-mode interface with glassmorphism aesthetics, live onscreen lighting glow representation, individual and group controls, and 24 custom-designed scene selectors.
+This app communicates directly with your WiZ lights over your local Wi-Fi network using WiZ's native **local UDP protocol (port 38899)**. It features a high-fidelity, premium dark-mode interface with glassmorphism aesthetics, live onscreen lighting glow representation, individual and group controls, 24 custom scene selectors, and a Netflix-like profile management system.
 
 ---
 
@@ -11,69 +11,63 @@ This app communicates directly with your WiZ lights over your local Wi-Fi networ
 - 🌟 **Premium UI/UX:** Stunning dark-mode dashboard with rich glassmorphism styling, responsive layouts, and soft animations.
 - 💡 **Live Screen Glow:** The onscreen bulb indicator casts a real-time color glow that precisely matches the physical bulb's RGB color, Kelvin temperature, or active scene.
 - ⚡ **Zero External APIs:** Everything runs locally on your machine, communicating directly with your bulbs.
+- 👤 **Multi-Profile Accounts:** Netflix-style profiles screen (without passwords). Each profile maintains its own custom list of devices and saves your active session in the browser cache.
 - 🎨 **RGB & Kelvin Temperature:** Smooth brightness, Kelvin white spectrum (2200K - 6500K), and custom RGB color picker controls.
-- 🎭 **24 Predefined Scenes:** Instant triggers for popular WiZ scenes (Sunset, Ocean, Party, Fireplace, Cozy, Forest, etc.) with custom gradients.
+- 🎭 **24 Minimalist Scenes:** Subtle scene selectors showing glowing colored indicator dots next to scene names.
 - 👥 **Group Controls:** Turn all lights on/off, adjust group brightness, or set group colors simultaneously.
 - 🔍 **Auto Discovery & Manual Add:** Scan your local network to find bulbs or manually add them by IP address.
-- 💾 **Persistent Settings:** Saved lights persist across container restarts (stored locally in `./data/bulbs.json`).
+- 💾 **Persistent Settings:** Saved lights and profiles persist across container restarts (stored locally in `./data/profiles.json`).
+- 🤖 **CI/CD Built-in:** Automatic GitHub Action workflow compiles and pushes new builds to GitHub Container Registry (GHCR) on pushes to the main branch.
 
 ---
 
-## Quick Start
+## Deployment & Running Guide
 
-### 1. Build and Run Container
-Run the following command in your terminal inside this directory to build and start the container in the background:
+### Option A: Local Running (Desktop)
+1. Ensure your container image is built and running in the background:
+   ```bash
+   docker compose up -d
+   ```
+2. Open your browser to: `http://localhost:8000`
+
+### Option B: Hosting on a NAS (Synology, QNAP, Portainer)
+You do not need to upload any source files or build the code on your NAS. You only need to copy the `docker-compose.yml` file to your NAS and run it.
+
+1. **Create the docker-compose file on your NAS:**
+   Create a folder `/docker/wizz_controll` on your NAS, and save the following contents as `docker-compose.yml`:
+   ```yaml
+   services:
+     wiz-controller:
+       image: ghcr.io/lenni707/wizz_controll:latest
+       container_name: wiz-desktop-controller
+       network_mode: host
+       volumes:
+         - ./data:/data
+       restart: unless-stopped
+   ```
+   > [!NOTE]
+   > - `network_mode: host` is recommended for NAS deployments to allow UDP broadcasts for auto-discovery of lights.
+   > - In host network mode, port mappings are ignored; the container binds directly to port `8000` on your NAS IP.
+2. **Launch the Container:**
+   - **Synology Container Manager:** Create a new **Project**, point it to your folder, and click **Start**.
+   - **Command Line / SSH:** Run `docker compose up -d` in the directory.
+3. **Access:** Open `http://<YOUR_NAS_IP>:8000` in your browser.
+
+---
+
+## Updating the Application
+
+### 1. Push changes to GitHub
+The repository includes a GitHub Action ([.github/workflows/docker-publish.yml](file:///Users/lenni/programming/vibe_code/wizz_controll/.github/workflows/docker-publish.yml)) that automatically triggers when you commit and push to `main`. It will build and push the new image to `ghcr.io/lenni707/wizz_controll:latest`.
 ```bash
-docker compose up --build -d
+git add .
+git commit -m "Your update message"
+git push
 ```
 
-### 2. Access the Web Interface
-Once running, open your web browser and navigate to:
-```url
-http://localhost:8000
-```
-
----
-
-## Operating Instructions & Networking Tips
-
-### Finding Your Bulb's IP Address
-Since WiZ bulbs communicate via local UDP unicast, the controller needs to know their IP addresses:
-1. Open the **WiZ Mobile App**.
-2. Tap on the room, then tap on the **bulb/light** you want to control.
-3. Tap the **Settings (Gear)** or the **Info ("i")** icon.
-4. Note down the **IP Address** (e.g., `192.168.1.104`).
-5. *(Recommended)* Set a **DHCP Reservation (Static IP)** in your router settings for your bulbs so their IP addresses do not change.
-
-### Automatic Discovery vs. Manual Add
-- **Scan Local Network:** Clicking the scan button sends a UDP broadcast to discover bulbs. Note that Docker Desktop (especially on macOS and Windows) runs inside a virtual machine, which occasionally blocks UDP broadcasts from escaping to the physical network.
-- **Add IP Manually:** If the scanner does not find your bulbs automatically, simply click **Add IP**, input the IP address you found in your WiZ mobile app, and give it a custom name. Once added, the container sends unicast UDP packets directly to the bulb, which bypasses VM broadcast limits and works **100% reliably on all operating systems**.
-
----
-
-## Project Structure
-
-```text
-wizz_controll/
-├── app/
-│   ├── main.py          # FastAPI backend (UDP client & API endpoints)
-│   └── static/          # Web frontend files
-│       ├── index.html   # Main Dashboard
-│       ├── css/
-│       │   └── style.css# Premium styling stylesheet
-│       └── js/
-│           └── app.js   # Frontend state and event binding
-├── Dockerfile           # Multi-stage python container build
-├── docker-compose.yml   # Port and volume mapping
-├── requirements.txt     # Python dependencies
-└── README.md            # Documentation
-```
-
----
-
-## Stop the Application
-To stop and remove the container:
+### 2. Update on your NAS
+Once the GitHub Action completes (usually 1-2 minutes), run this single command on your NAS (or click **Action > Clean/Update** in your NAS GUI) to fetch the latest code:
 ```bash
-docker compose down
+docker compose pull && docker compose up -d
 ```
-All bulb settings are saved in the host directory `./data/bulbs.json` and will load automatically when you restart.
+All your profile settings and light databases are stored in the host volume `./data/profiles.json` and are **fully preserved** during updates.

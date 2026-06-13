@@ -1,6 +1,6 @@
 services:
   wiz-controller:
-    build: .
+    image: ghcr.io/lenni707/wizz_controll:latest
     container_name: wiz-desktop-controller
     ports:
       - "8000:8000"
