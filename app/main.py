@@ -397,29 +397,6 @@ async def rename_profile_light(profile_id: str, payload: BulbRename):
         "lights": list(updated_lights)
     }
 
-@app.post("/api/profiles/{profile_id}/lights/{ip}/control")
-async def control_profile_light(profile_id: str, ip: str, control: BulbControl):
-    profiles = load_profiles()
-    profile = next((p for p in profiles if p["id"] == profile_id), None)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-        
-    bulbs = profile.get("bulbs", [])
-    target_bulb = next((b for b in bulbs if b["ip"] == ip), None)
-    
-    if not target_bulb:
-        raise HTTPException(status_code=404, detail="Bulb not found in this profile configuration")
-        
-    success = await send_control_to_bulb(ip, control)
-    if not success:
-        raise HTTPException(status_code=502, detail="Failed to communicate with the light")
-        
-    updated_state = await fetch_light_state(ip, target_bulb["name"])
-    return {
-        "status": "success",
-        "light": updated_state
-    }
-
 @app.post("/api/profiles/{profile_id}/lights/group/control")
 async def control_profile_group(profile_id: str, control: BulbControl):
     profiles = load_profiles()
@@ -451,6 +428,29 @@ async def control_profile_group(profile_id: str, control: BulbControl):
         "success_count": success_count,
         "total_count": len(bulbs),
         "lights": list(updated_lights)
+    }
+
+@app.post("/api/profiles/{profile_id}/lights/{ip}/control")
+async def control_profile_light(profile_id: str, ip: str, control: BulbControl):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    bulbs = profile.get("bulbs", [])
+    target_bulb = next((b for b in bulbs if b["ip"] == ip), None)
+    
+    if not target_bulb:
+        raise HTTPException(status_code=404, detail="Bulb not found in this profile configuration")
+        
+    success = await send_control_to_bulb(ip, control)
+    if not success:
+        raise HTTPException(status_code=502, detail="Failed to communicate with the light")
+        
+    updated_state = await fetch_light_state(ip, target_bulb["name"])
+    return {
+        "status": "success",
+        "light": updated_state
     }
 
 # Resolve static files path for PyInstaller or native running
