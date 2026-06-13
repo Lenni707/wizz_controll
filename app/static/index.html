@@ -15,7 +15,22 @@
     <div class="glow-bg-1"></div>
     <div class="glow-bg-2"></div>
 
-    <div class="app-container">
+    <!-- Netflix-like Profile Selection Screen -->
+    <div id="profile-selection-screen" class="profile-screen-overlay active">
+        <div class="profile-screen-container">
+            <h1>Who is controlling?</h1>
+            <div id="profiles-grid" class="profiles-grid">
+                <!-- Profiles dynamically loaded here -->
+            </div>
+            <div class="profile-screen-actions">
+                <button id="btn-add-profile-modal" class="btn btn-outline">Add Profile</button>
+                <button id="btn-manage-profiles" class="btn btn-text">Manage Profiles</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Workspace (Hidden until profile is chosen) -->
+    <div class="app-container" style="display: none;">
         <!-- Sidebar / Navigation -->
         <header class="app-header">
             <div class="logo-area">
@@ -35,8 +50,14 @@
                     <span>Desktop System</span>
                 </div>
             </div>
-            <div class="global-stats">
-                <div class="stat-badge" id="stats-count">0 Lights</div>
+            <div class="header-right">
+                <div class="global-stats">
+                    <div class="stat-badge" id="stats-count">0 Lights</div>
+                </div>
+                <button id="btn-active-profile" class="active-profile-btn" title="Switch User Profile">
+                    <span id="active-profile-avatar-color" class="profile-dot-header color-indigo"></span>
+                    <span id="active-profile-name">Lenni</span>
+                </button>
             </div>
         </header>
 
@@ -71,7 +92,6 @@
                         <p>Searching for lights...</p>
                     </div>
                 </div>
-
             </section>
 
             <!-- Right Panel: Light Control Center -->
@@ -192,99 +212,99 @@
                         <div class="scenes-grid">
                             <!-- Dynamic Scenes -->
                             <button class="scene-card sc-ocean" data-scene="1">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Ocean</span>
                             </button>
                             <button class="scene-card sc-romance" data-scene="2">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Romance</span>
                             </button>
                             <button class="scene-card sc-sunset" data-scene="3">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Sunset</span>
                             </button>
                             <button class="scene-card sc-party" data-scene="4">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Party</span>
                             </button>
                             <button class="scene-card sc-fireplace" data-scene="5">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Fireplace</span>
                             </button>
                             <button class="scene-card sc-cozy" data-scene="6">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Cozy</span>
                             </button>
                             <button class="scene-card sc-forest" data-scene="7">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Forest</span>
                             </button>
                             <button class="scene-card sc-pastel" data-scene="8">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Pastel</span>
                             </button>
                             <button class="scene-card sc-wakeup" data-scene="9">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Wake-up</span>
                             </button>
                             <button class="scene-card sc-bedtime" data-scene="10">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Bedtime</span>
                             </button>
                             <button class="scene-card sc-warmwhite" data-scene="11">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Warm White</span>
                             </button>
                             <button class="scene-card sc-daylight" data-scene="12">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Daylight</span>
                             </button>
                             <button class="scene-card sc-coolwhite" data-scene="13">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Cool White</span>
                             </button>
                             <button class="scene-card sc-nightlight" data-scene="14">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Night Light</span>
                             </button>
                             <button class="scene-card sc-focus" data-scene="15">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Focus</span>
                             </button>
                             <button class="scene-card sc-relax" data-scene="16">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Relax</span>
                             </button>
                             <button class="scene-card sc-tvtime" data-scene="18">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">TV Time</span>
                             </button>
                             <button class="scene-card sc-candlelight" data-scene="29">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Candlelight</span>
                             </button>
                             <button class="scene-card sc-goldenwhite" data-scene="30">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Golden White</span>
                             </button>
                             <button class="scene-card sc-club" data-scene="26">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Club Glow</span>
                             </button>
                             <button class="scene-card sc-halloween" data-scene="28">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Halloween</span>
                             </button>
                             <button class="scene-card sc-christmas" data-scene="27">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Christmas</span>
                             </button>
                             <button class="scene-card sc-steampunk" data-scene="32">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Steampunk</span>
                             </button>
                             <button class="scene-card sc-diwali" data-scene="33">
-                                <div class="scene-gradient"></div>
+                                <div class="scene-dot"></div>
                                 <span class="scene-name">Diwali</span>
                             </button>
                         </div>
@@ -339,6 +359,53 @@
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary btn-close-modal">Cancel</button>
                         <button type="submit" class="btn btn-primary">Rename</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Profile Modal -->
+    <div id="modal-add-profile" class="modal-overlay">
+        <div class="modal-container glass-panel">
+            <div class="modal-header">
+                <h3>Create New Profile</h3>
+                <button class="modal-close btn-close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-add-profile">
+                    <div class="form-group">
+                        <label for="new-profile-name">Profile Name</label>
+                        <input type="text" id="new-profile-name" placeholder="e.g., Guest Room, Sarah" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Choose Color Theme</label>
+                        <div class="avatar-theme-selector">
+                            <label class="avatar-radio color-indigo">
+                                <input type="radio" name="profile-avatar" value="indigo" checked>
+                                <span class="radio-dot"></span>
+                            </label>
+                            <label class="avatar-radio color-emerald">
+                                <input type="radio" name="profile-avatar" value="emerald">
+                                <span class="radio-dot"></span>
+                            </label>
+                            <label class="avatar-radio color-violet">
+                                <input type="radio" name="profile-avatar" value="violet">
+                                <span class="radio-dot"></span>
+                            </label>
+                            <label class="avatar-radio color-amber">
+                                <input type="radio" name="profile-avatar" value="amber">
+                                <span class="radio-dot"></span>
+                            </label>
+                            <label class="avatar-radio color-rose">
+                                <input type="radio" name="profile-avatar" value="rose">
+                                <span class="radio-dot"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary btn-close-modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Profile</button>
                     </div>
                 </form>
             </div>

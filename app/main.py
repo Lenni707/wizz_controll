@@ -1,16 +1,17 @@
 import os
+import sys
 import json
 import socket
 import asyncio
 import logging
-from typing import List, Optional, Tuple
-from fastapi import FastAPI, HTTPException
+import uuid
+from pathlib import Path
+from typing import List, Optional, Tuple, Dict
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pywizlight import wizlight, PilotBuilder, discovery
-
-from fastapi import FastAPI, HTTPException, Request
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -38,25 +39,57 @@ async def add_no_cache_headers(request: Request, call_next):
         response.headers["Expires"] = "0"
     return response
 
-BULBS_FILE = os.getenv("BULBS_FILE", "bulbs.json")
+PROFILES_FILE = os.getenv("PROFILES_FILE", "/data/profiles.json")
 
-def load_bulbs() -> list:
-    if not os.path.exists(BULBS_FILE):
-        return []
+# In case /data directory doesn't exist yet (e.g. running outside Docker locally)
+os.makedirs(os.path.dirname(PROFILES_FILE), exist_ok=True)
+
+def load_profiles() -> list:
+    if not os.path.exists(PROFILES_FILE):
+        # Default initialization
+        default_profiles = [
+            {
+                "id": "profile_lenni",
+                "name": "Lenni",
+                "avatar": "indigo",
+                "bulbs": []
+            }
+        ]
+        save_profiles(default_profiles)
+        return default_profiles
     try:
-        with open(BULBS_FILE, "r") as f:
+        with open(PROFILES_FILE, "r") as f:
             data = json.load(f)
-            return data.get("bulbs", [])
+            profiles = data.get("profiles", [])
+            if not profiles:
+                profiles = [
+                    {
+                        "id": "profile_lenni",
+                        "name": "Lenni",
+                        "avatar": "indigo",
+                        "bulbs": []
+                    }
+                ]
+                save_profiles(profiles)
+            return profiles
     except Exception as e:
-        logger.error(f"Error loading bulbs: {e}")
+        logger.error(f"Error loading profiles: {e}")
         return []
 
-def save_bulbs(bulbs: list):
+def save_profiles(profiles: list):
     try:
-        with open(BULBS_FILE, "w") as f:
-            json.dump({"bulbs": bulbs}, f, indent=2)
+        with open(PROFILES_FILE, "w") as f:
+            json.dump({"profiles": profiles}, f, indent=2)
     except Exception as e:
-        logger.error(f"Error saving bulbs: {e}")
+        logger.error(f"Error saving profiles: {e}")
+
+# Pydantic Schemas
+class ProfileAdd(BaseModel):
+    name: str
+    avatar: str
+
+class ProfileRemove(BaseModel):
+    id: str
 
 class BulbControl(BaseModel):
     on: Optional[bool] = None
@@ -77,6 +110,7 @@ class BulbRename(BaseModel):
 class BulbRemove(BaseModel):
     ip: str
 
+# Helpers
 async def get_broadcast_addresses() -> List[str]:
     ips = ["255.255.255.255"]
     try:
@@ -139,7 +173,6 @@ async def send_control_to_bulb(ip: str, control: BulbControl) -> bool:
             await asyncio.wait_for(light.turn_off(), timeout=2.0)
             return True
             
-        # Build commands
         pilot_params = {}
         if control.brightness is not None:
             pilot_params["brightness"] = max(0, min(255, control.brightness))
@@ -161,10 +194,53 @@ async def send_control_to_bulb(ip: str, control: BulbControl) -> bool:
         logger.error(f"Failed to control real bulb {ip}: {e}")
         return False
 
-# Endpoints
-@app.get("/api/lights")
-async def get_lights():
-    bulbs = load_bulbs()
+# Profile Endpoints
+@app.get("/api/profiles")
+async def get_profiles():
+    return load_profiles()
+
+@app.post("/api/profiles/add")
+async def add_profile(payload: ProfileAdd):
+    name = payload.name.strip()
+    avatar = payload.avatar.strip()
+    
+    if not name or not avatar:
+        raise HTTPException(status_code=400, detail="Name and avatar are required")
+        
+    profiles = load_profiles()
+    profile_id = "profile_" + str(uuid.uuid4())[:8]
+    
+    new_profile = {
+        "id": profile_id,
+        "name": name,
+        "avatar": avatar,
+        "bulbs": []
+    }
+    
+    profiles.append(new_profile)
+    save_profiles(profiles)
+    return profiles
+
+@app.post("/api/profiles/remove")
+async def remove_profile(payload: ProfileRemove):
+    profiles = load_profiles()
+    # Ensure we don't delete the last profile
+    if len(profiles) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the only remaining profile")
+        
+    updated = [p for p in profiles if p["id"] != payload.id]
+    save_profiles(updated)
+    return updated
+
+# Profile-Specific Light Endpoints
+@app.get("/api/profiles/{profile_id}/lights")
+async def get_profile_lights(profile_id: str):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    bulbs = profile.get("bulbs", [])
     
     # Fetch all states concurrently
     tasks = [
@@ -177,8 +253,13 @@ async def get_lights():
         "lights": list(results)
     }
 
-@app.post("/api/lights/discover")
-async def discover_lights_endpoint():
+@app.post("/api/profiles/{profile_id}/lights/discover")
+async def discover_profile_lights(profile_id: str):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
     broadcasts = await get_broadcast_addresses()
     logger.info(f"Starting discovery on broadcast addresses: {broadcasts}")
     
@@ -188,7 +269,7 @@ async def discover_lights_endpoint():
         
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
-    current_bulbs = load_bulbs()
+    current_bulbs = profile.get("bulbs", [])
     current_ips = {b["ip"] for b in current_bulbs}
     
     new_bulbs_count = 0
@@ -205,8 +286,8 @@ async def discover_lights_endpoint():
                     current_ips.add(ip)
                     new_bulbs_count += 1
                     
-    # Save the updated configuration
-    save_bulbs(current_bulbs)
+    profile["bulbs"] = current_bulbs
+    save_profiles(profiles)
     
     # Query states
     tasks = [
@@ -222,17 +303,21 @@ async def discover_lights_endpoint():
         "lights": list(updated_lights)
     }
 
-@app.post("/api/lights/add")
-async def add_light(payload: BulbManualAdd):
+@app.post("/api/profiles/{profile_id}/lights/add")
+async def add_profile_light(profile_id: str, payload: BulbManualAdd):
     ip = payload.ip.strip()
     name = payload.name.strip()
     
     if not ip or not name:
         raise HTTPException(status_code=400, detail="IP address and Name are required")
         
-    current_bulbs = load_bulbs()
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
         
-    # Check if duplicate IP
+    current_bulbs = profile.get("bulbs", [])
+    
     for b in current_bulbs:
         if b["ip"] == ip:
             raise HTTPException(status_code=400, detail="Bulb with this IP already exists")
@@ -241,7 +326,7 @@ async def add_light(payload: BulbManualAdd):
         "ip": ip,
         "name": name
     })
-    save_bulbs(current_bulbs)
+    save_profiles(profiles)
     
     # Fetch status of new bulb list
     tasks = [
@@ -255,14 +340,20 @@ async def add_light(payload: BulbManualAdd):
         "lights": list(updated_lights)
     }
 
-@app.post("/api/lights/remove")
-async def remove_light(payload: BulbRemove):
-    current_bulbs = load_bulbs()
+@app.post("/api/profiles/{profile_id}/lights/remove")
+async def remove_profile_light(profile_id: str, payload: BulbRemove):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    current_bulbs = profile.get("bulbs", [])
     updated_bulbs = [b for b in current_bulbs if b["ip"] != payload.ip]
+    profile["bulbs"] = updated_bulbs
     
-    save_bulbs(updated_bulbs)
+    save_profiles(profiles)
     
-    # Fetch status of new bulb list
+    # Fetch status
     tasks = [
         fetch_light_state(b["ip"], b["name"])
         for b in updated_bulbs
@@ -274,9 +365,14 @@ async def remove_light(payload: BulbRemove):
         "lights": list(updated_lights)
     }
 
-@app.post("/api/lights/rename")
-async def rename_light(payload: BulbRename):
-    current_bulbs = load_bulbs()
+@app.post("/api/profiles/{profile_id}/lights/rename")
+async def rename_profile_light(profile_id: str, payload: BulbRename):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    current_bulbs = profile.get("bulbs", [])
     found = False
     for b in current_bulbs:
         if b["ip"] == payload.ip:
@@ -287,9 +383,9 @@ async def rename_light(payload: BulbRename):
     if not found:
         raise HTTPException(status_code=404, detail="Bulb not found")
         
-    save_bulbs(current_bulbs)
+    save_profiles(profiles)
     
-    # Fetch status of new bulb list
+    # Fetch status
     tasks = [
         fetch_light_state(b["ip"], b["name"])
         for b in current_bulbs
@@ -301,32 +397,37 @@ async def rename_light(payload: BulbRename):
         "lights": list(updated_lights)
     }
 
-@app.post("/api/lights/{ip}/control")
-async def control_light(ip: str, control: BulbControl):
-    bulbs = load_bulbs()
-    target_bulb = None
-    for b in bulbs:
-        if b["ip"] == ip:
-            target_bulb = b
-            break
-            
+@app.post("/api/profiles/{profile_id}/lights/{ip}/control")
+async def control_profile_light(profile_id: str, ip: str, control: BulbControl):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    bulbs = profile.get("bulbs", [])
+    target_bulb = next((b for b in bulbs if b["ip"] == ip), None)
+    
     if not target_bulb:
-        raise HTTPException(status_code=404, detail="Bulb not found in configuration")
+        raise HTTPException(status_code=404, detail="Bulb not found in this profile configuration")
         
     success = await send_control_to_bulb(ip, control)
     if not success:
         raise HTTPException(status_code=502, detail="Failed to communicate with the light")
         
-    # Get updated state
     updated_state = await fetch_light_state(ip, target_bulb["name"])
     return {
         "status": "success",
         "light": updated_state
     }
 
-@app.post("/api/lights/group/control")
-async def control_group(control: BulbControl):
-    bulbs = load_bulbs()
+@app.post("/api/profiles/{profile_id}/lights/group/control")
+async def control_profile_group(profile_id: str, control: BulbControl):
+    profiles = load_profiles()
+    profile = next((p for p in profiles if p["id"] == profile_id), None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    bulbs = profile.get("bulbs", [])
     if not bulbs:
         return {"status": "success", "lights": []}
         
@@ -335,7 +436,6 @@ async def control_group(control: BulbControl):
         send_control_to_bulb(b["ip"], control)
         for b in bulbs
     ]
-    
     results = await asyncio.gather(*tasks)
     
     # Query updated states
@@ -353,5 +453,11 @@ async def control_group(control: BulbControl):
         "lights": list(updated_lights)
     }
 
-# Mount static files at root
-app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
+# Resolve static files path for PyInstaller or native running
+BASE_DIR = Path(__file__).resolve().parent
+if getattr(sys, 'frozen', False):
+    STATIC_DIR = Path(sys._MEIPASS) / "app" / "static"
+else:
+    STATIC_DIR = BASE_DIR / "static"
+
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

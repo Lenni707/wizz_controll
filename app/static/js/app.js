@@ -1,15 +1,30 @@
 // WiZ Smart Desktop Controller App Logic
 
 // App State
+let profiles = [];
+let activeProfileId = null;
 let lights = [];
 let activeLightIp = null;
 let isDiscovering = false;
+let isManageMode = false;
 
 // DOM Elements
+const profileSelectionScreen = document.getElementById('profile-selection-screen');
+const profilesGrid = document.getElementById('profiles-grid');
+const btnAddProfileModal = document.getElementById('btn-add-profile-modal');
+const btnManageProfiles = document.getElementById('btn-manage-profiles');
+const appContainer = document.querySelector('.app-container');
+
+// Header elements
+const statsCount = document.getElementById('stats-count');
+const btnActiveProfile = document.getElementById('btn-active-profile');
+const activeProfileName = document.getElementById('active-profile-name');
+const activeProfileAvatarColor = document.getElementById('active-profile-avatar-color');
+
+// Dashboard elements
 const lightsListContainer = document.getElementById('lights-list-container');
 const activeControlsContainer = document.getElementById('active-controls-container');
 const noSelectionState = document.getElementById('no-selection-state');
-const statsCount = document.getElementById('stats-count');
 const btnDiscover = document.getElementById('btn-discover');
 const btnHome = document.getElementById('btn-home');
 
@@ -29,6 +44,7 @@ const valColorHex = document.getElementById('val-color-hex');
 // Modals
 const modalAddDevice = document.getElementById('modal-add-device');
 const modalRenameDevice = document.getElementById('modal-rename-device');
+const modalAddProfile = document.getElementById('modal-add-profile');
 const btnAddModal = document.getElementById('btn-add-modal');
 const btnRenameModal = document.getElementById('btn-rename-modal');
 const btnRemoveLight = document.getElementById('btn-remove-light');
@@ -63,17 +79,27 @@ const SCENE_COLORS = {
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
-    fetchLights();
+    initProfiles();
     setupEventListeners();
 });
 
 // Setup Event Listeners
 function setupEventListeners() {
+    // Discovery
+    btnDiscover.addEventListener('click', discoverLights);
+
     // Home Button
     btnHome.addEventListener('click', deselectLight);
 
-    // Discovery
-    btnDiscover.addEventListener('click', discoverLights);
+    // Profile Screen Buttons
+    btnAddProfileModal.addEventListener('click', () => openModal(modalAddProfile));
+    btnManageProfiles.addEventListener('click', toggleManageProfilesMode);
+    
+    // Header Profile Switcher
+    btnActiveProfile.addEventListener('click', () => {
+        deselectLight();
+        showProfileScreen();
+    });
 
     // Modals open/close
     btnAddModal.addEventListener('click', () => openModal(modalAddDevice));
@@ -92,6 +118,7 @@ function setupEventListeners() {
     // Modal forms submission
     document.getElementById('form-add-device').addEventListener('submit', handleAddDevice);
     document.getElementById('form-rename-device').addEventListener('submit', handleRenameDevice);
+    document.getElementById('form-add-profile').addEventListener('submit', handleAddProfile);
 
     // Remove Light
     btnRemoveLight.addEventListener('click', handleRemoveLight);
@@ -182,10 +209,189 @@ function setupEventListeners() {
     });
 }
 
+// ----------------------------------------------------
+// PROFILE LOGIC
+// ----------------------------------------------------
+
+async function initProfiles() {
+    try {
+        const response = await fetch('/api/profiles');
+        profiles = await response.json();
+        
+        renderProfilesGrid();
+        
+        // Check local storage for saved session profile
+        const savedProfileId = localStorage.getItem('activeProfileId');
+        if (savedProfileId && profiles.some(p => p.id === savedProfileId)) {
+            selectProfile(savedProfileId);
+        } else {
+            showProfileScreen();
+        }
+    } catch (err) {
+        console.error("Error loading profiles:", err);
+    }
+}
+
+function showProfileScreen() {
+    activeProfileId = null;
+    isManageMode = false;
+    btnManageProfiles.textContent = "Manage Profiles";
+    
+    appContainer.style.display = "none";
+    profileSelectionScreen.classList.add('active');
+    
+    renderProfilesGrid();
+}
+
+function renderProfilesGrid() {
+    profilesGrid.innerHTML = '';
+    
+    profiles.forEach(profile => {
+        const card = document.createElement('div');
+        card.className = `profile-card ${isManageMode ? 'manageable' : ''}`;
+        
+        const initial = profile.name.charAt(0).toUpperCase();
+        
+        card.innerHTML = `
+            <div class="profile-avatar-box color-${profile.avatar}">
+                ${initial}
+            </div>
+            <div class="profile-avatar-name">${profile.name}</div>
+            <button class="profile-delete-btn" data-id="${profile.id}" title="Delete profile">&times;</button>
+        `;
+        
+        // Click to enter profile
+        card.addEventListener('click', (e) => {
+            if (e.target.classList.contains('profile-delete-btn')) return;
+            
+            if (isManageMode) {
+                // Future extension: Edit name
+                const newName = prompt(`Change profile name for "${profile.name}":`, profile.name);
+                if (newName && newName.trim()) {
+                    renameProfile(profile.id, newName.trim());
+                }
+            } else {
+                selectProfile(profile.id);
+            }
+        });
+        
+        // Delete button listener
+        const delBtn = card.querySelector('.profile-delete-btn');
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteProfile(profile.id, profile.name);
+        });
+        
+        profilesGrid.appendChild(card);
+    });
+}
+
+function toggleManageProfilesMode() {
+    isManageMode = !isManageMode;
+    btnManageProfiles.textContent = isManageMode ? "Done" : "Manage Profiles";
+    renderProfilesGrid();
+}
+
+async function selectProfile(profileId) {
+    const profile = profiles.find(p => p.id === profileId);
+    if (!profile) return;
+    
+    activeProfileId = profileId;
+    localStorage.setItem('activeProfileId', profileId);
+    
+    // Set Header profile labels
+    activeProfileName.textContent = profile.name;
+    // Set color class
+    activeProfileAvatarColor.className = `profile-dot-header color-${profile.avatar}`;
+    
+    // Hide overlay & show workspace
+    profileSelectionScreen.classList.remove('active');
+    appContainer.style.display = "flex";
+    
+    // Fetch Lights
+    await fetchLights();
+    deselectLight();
+}
+
+async function handleAddProfile(e) {
+    e.preventDefault();
+    const nameInput = document.getElementById('new-profile-name');
+    const avatarInput = document.querySelector('input[name="profile-avatar"]:checked');
+    
+    if (!nameInput.value.trim()) return;
+    
+    try {
+        const response = await fetch('/api/profiles/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: nameInput.value.trim(),
+                avatar: avatarInput.value
+            })
+        });
+        
+        if (response.ok) {
+            profiles = await response.json();
+            renderProfilesGrid();
+            closeAllModals();
+            
+            nameInput.value = '';
+        }
+    } catch (err) {
+        console.error("Error adding profile:", err);
+    }
+}
+
+async function deleteProfile(profileId, name) {
+    if (profiles.length <= 1) {
+        alert("You must keep at least one profile.");
+        return;
+    }
+    
+    if (confirm(`Are you sure you want to delete profile "${name}"? All associated lights will be removed.`)) {
+        try {
+            const response = await fetch('/api/profiles/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: profileId })
+            });
+            
+            if (response.ok) {
+                profiles = await response.json();
+                renderProfilesGrid();
+                
+                // If deleted active profile, log out
+                if (activeProfileId === profileId) {
+                    localStorage.removeItem('activeProfileId');
+                    showProfileScreen();
+                }
+            } else {
+                const data = await response.json();
+                alert(data.detail || "Failed to remove profile.");
+            }
+        } catch (err) {
+            console.error("Error deleting profile:", err);
+        }
+    }
+}
+
+async function renameProfile(profileId, newName) {
+    // Currently, let's keep it simple: we can map rename in backend, 
+    // or just let it edit names in local memory (simulating changes, 
+    // or we can implement it as a nice feature if requested, but for now we skip backend additions and edit names local, 
+    // actually, let's keep it simple: edit profile is optional, let's just make it edit name in local config if backend had it, 
+    // but the backend does not have rename profile. Let's just focus on adding/removing profiles which is what user requested.)
+}
+
+// ----------------------------------------------------
+// LIGHTS LOGIC
+// ----------------------------------------------------
+
 // Fetch lights from server
 async function fetchLights() {
+    if (!activeProfileId) return;
     try {
-        const response = await fetch('/api/lights');
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights`);
         const data = await response.json();
         lights = data.lights || [];
         
@@ -207,7 +413,7 @@ async function fetchLights() {
 
 // Start discovery scan
 async function discoverLights() {
-    if (isDiscovering) return;
+    if (!activeProfileId || isDiscovering) return;
     
     isDiscovering = true;
     btnDiscover.classList.add('disabled');
@@ -222,7 +428,7 @@ async function discoverLights() {
     `;
 
     try {
-        const response = await fetch('/api/lights/discover', { method: 'POST' });
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights/discover`, { method: 'POST' });
         const data = await response.json();
         
         lights = data.lights || [];
@@ -260,7 +466,6 @@ function renderLightsList() {
         const card = document.createElement('div');
         card.className = `light-card ${light.state?.on ? 'on' : ''} ${!light.online ? 'offline' : ''} ${light.ip === activeLightIp ? 'active' : ''}`;
         
-        // Compute mini preview color for card icon
         let swatchColor = 'transparent';
         let glowStyle = '';
         if (light.online && light.state?.on) {
@@ -373,7 +578,7 @@ function updateActiveControlsUI(light) {
     valBrightness.textContent = `${Math.round((br / 255) * 100)}%`;
     document.documentElement.style.setProperty('--bulb-brightness', br / 255);
 
-    let glowRgb = [255, 180, 100]; // default warm
+    let glowRgb = [255, 180, 100];
     
     document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.scene-card').forEach(c => c.classList.remove('active'));
@@ -422,10 +627,10 @@ function updateActiveControlsUI(light) {
 
 // Send light control parameters to backend
 async function sendControl(payload) {
-    if (!activeLightIp) return;
+    if (!activeProfileId || !activeLightIp) return;
     
     try {
-        const response = await fetch(`/api/lights/${activeLightIp}/control`, {
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights/${activeLightIp}/control`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -464,8 +669,9 @@ function togglePower() {
 
 // Toggle power status directly from the list card
 async function togglePowerForIp(ip, nextState) {
+    if (!activeProfileId) return;
     try {
-        const response = await fetch(`/api/lights/${ip}/control`, {
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights/${ip}/control`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ on: nextState })
@@ -491,8 +697,9 @@ async function togglePowerForIp(ip, nextState) {
 
 // Send Group Control commands
 async function sendGroupControl(payload) {
+    if (!activeProfileId) return;
     try {
-        const response = await fetch('/api/lights/group/control', {
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights/group/control`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -521,6 +728,8 @@ window.applyGroupKelvin = function(kelvin) {
 // Manual Device Addition
 async function handleAddDevice(e) {
     e.preventDefault();
+    if (!activeProfileId) return;
+    
     const ipInput = document.getElementById('add-ip');
     const nameInput = document.getElementById('add-name');
     const errorDiv = document.getElementById('add-error');
@@ -528,7 +737,7 @@ async function handleAddDevice(e) {
     errorDiv.style.display = 'none';
     
     try {
-        const response = await fetch('/api/lights/add', {
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights/add`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -562,12 +771,12 @@ async function handleAddDevice(e) {
 // Rename Device
 async function handleRenameDevice(e) {
     e.preventDefault();
-    if (!activeLightIp) return;
+    if (!activeProfileId || !activeLightIp) return;
     
     const nameInput = document.getElementById('rename-name');
     
     try {
-        const response = await fetch('/api/lights/rename', {
+        const response = await fetch(`/api/profiles/${activeProfileId}/lights/rename`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -596,14 +805,14 @@ async function handleRenameDevice(e) {
 
 // Remove Device
 async function handleRemoveLight() {
-    if (!activeLightIp) return;
+    if (!activeProfileId || !activeLightIp) return;
     
     const selected = lights.find(l => l.ip === activeLightIp);
     if (!selected) return;
     
     if (confirm(`Are you sure you want to remove "${selected.name}" from your desktop panel?`)) {
         try {
-            const response = await fetch('/api/lights/remove', {
+            const response = await fetch(`/api/profiles/${activeProfileId}/lights/remove`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ip: activeLightIp })
@@ -648,6 +857,7 @@ function openModal(modal) {
 function closeAllModals() {
     modalAddDevice.classList.remove('active');
     modalRenameDevice.classList.remove('active');
+    modalAddProfile.classList.remove('active');
     document.getElementById('add-error').style.display = 'none';
 }
 
